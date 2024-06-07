@@ -1,0 +1,73 @@
+#define BLYNK_TEMPLATE_ID "TMPL3A_A1O_b_"
+#define BLYNK_TEMPLATE_NAME "Robot Project"
+#define BLYNK_AUTH_TOKEN "HYnKCOdRJav0hpztHaqKdSniX4ULJcnM"
+
+#define BLYNK_PRINT Serial
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+
+#define PWM1_PIN 14 // D5 on the ESP8266
+#define PWM2_PIN 12 // D6 on the ESP8266
+
+char auth[] = "HYnKCOdRJav0hpztHaqKdSniX4ULJcnM"; // Replace with your Blynk Auth Token
+char ssid[] = "iPhone";     // Replace with your WiFi SSID
+char pass[] = "sskulkarni"; // Replace with your WiFi password
+
+BlynkTimer timer;
+
+void setup() {
+  // Set the PWM pins as output
+  pinMode(PWM1_PIN, OUTPUT);
+  pinMode(PWM2_PIN, OUTPUT);
+
+  // Initialize serial communication for debugging
+  Serial.begin(115200);
+
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, pass);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi connected");
+
+  // Initialize Blynk
+  Blynk.begin(auth, ssid, pass);
+
+  // Define callback functions for switch states
+  Blynk.virtualWrite(V1, 512);  // Set slider to mid position initially
+}
+
+// This function will be called every time the slider widget changes its value
+BLYNK_WRITE(V1) {
+  int speed = param.asInt(); // Get the value from the slider
+  analogWrite(PWM1_PIN, speed);  // Set speed on PWM1
+  Serial.print("Motor Speed: ");
+  Serial.println(speed);
+}
+
+// This function will be called every time the forward switch state changes
+BLYNK_WRITE(V2) {
+  int forward = param.asInt(); // Get the value of the forward switch (0 or 1)
+  if (forward == 1) {
+    digitalWrite(PWM1_PIN, HIGH); // Set PWM1 to HIGH for forward motion
+    digitalWrite(PWM2_PIN, LOW);  // Set PWM2 to LOW
+    Serial.println("Motor Forward");
+  }
+}
+
+// This function will be called every time the reverse switch state changes
+BLYNK_WRITE(V3) {
+  int reverse = param.asInt(); // Get the value of the reverse switch (0 or 1)
+  if (reverse == 1) {
+    digitalWrite(PWM1_PIN, LOW);  // Set PWM1 to LOW
+    digitalWrite(PWM2_PIN, HIGH); // Set PWM2 to HIGH for reverse motion
+    Serial.println("Motor Reverse");
+  }
+}
+
+void loop() {
+  Blynk.run(); // Run Blynk
+  timer.run(); // Run BlynkTimer
+}
