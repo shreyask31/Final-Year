@@ -1,0 +1,110 @@
+#define BLYNK_TEMPLATE_ID "TMPL3E6gmDLfH"
+#define BLYNK_TEMPLATE_NAME "Robot Project"
+#define BLYNK_AUTH_TOKEN "wY-PQRzkstJkW4SrkiWXn6w2Xf0NA83I"
+
+#define BLYNK_PRINT Serial
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+
+// Define pin numbers for Motor 1
+#define RPWM1 14  // GPIO14
+#define LPWM1 12  // GPIO12
+#define REN1 13   // GPIO13
+#define LEN1 15   // GPIO15
+
+// Define pin numbers for Motor 2
+#define RPWM2 4   // GPIO4
+#define LPWM2 5   // GPIO5
+#define REN2 16   // GPIO16
+#define LEN2 0    // GPIO0
+
+char auth[] = "wY-PQRzkstJkW4SrkiWXn6w2Xf0NA83I"; // Replace with your Blynk auth token
+char ssid[] = "iPhone";      // Replace with your WiFi SSID
+char pass[] = "sskulkarni";  // Replace with your WiFi password
+
+void setup() {
+  Serial.begin(9600);
+  Blynk.begin(auth, ssid, pass);
+
+  // Setup Motor 1
+  pinMode(RPWM1, OUTPUT);
+  pinMode(LPWM1, OUTPUT);
+  pinMode(REN1, OUTPUT);
+  pinMode(LEN1, OUTPUT);
+
+  // Setup Motor 2
+  pinMode(RPWM2, OUTPUT);
+  pinMode(LPWM2, OUTPUT);
+  pinMode(REN2, OUTPUT);
+  pinMode(LEN2, OUTPUT);
+
+  // Enable the motor drivers
+  digitalWrite(REN1, HIGH);
+  digitalWrite(LEN1, HIGH);
+  digitalWrite(REN2, HIGH);
+  digitalWrite(LEN2, HIGH);
+}
+
+void loop() {
+  Blynk.run();
+}
+
+BLYNK_WRITE(V1) {
+  int state = param.asInt();
+  if (state) {
+    // Forward both motors
+    digitalWrite(RPWM1, HIGH);
+    digitalWrite(LPWM1, LOW);
+    digitalWrite(RPWM2, HIGH);
+    digitalWrite(LPWM2, LOW);
+  } else {
+    // Stop both motors
+    digitalWrite(RPWM1, LOW);
+    digitalWrite(LPWM1, LOW);
+    digitalWrite(RPWM2, LOW);
+    digitalWrite(LPWM2, LOW);
+  }
+}
+
+BLYNK_WRITE(V2) {
+  int state = param.asInt();
+  if (state) {
+    // Reverse both motors
+    digitalWrite(RPWM1, LOW);
+    digitalWrite(LPWM1, HIGH);
+    digitalWrite(RPWM2, LOW);
+    digitalWrite(LPWM2, HIGH);
+  } else {
+    // Stop both motors
+    digitalWrite(RPWM1, LOW);
+    digitalWrite(LPWM1, LOW);
+    digitalWrite(RPWM2, LOW);
+    digitalWrite(LPWM2, LOW);
+  }
+}
+
+BLYNK_WRITE(V3) {
+  int state = param.asInt();
+  if (state) {
+    // Forward motor 1
+    digitalWrite(RPWM1, HIGH);
+    digitalWrite(LPWM1, LOW);
+  } else {
+    // Stop motor 1
+    digitalWrite(RPWM1, LOW);
+    digitalWrite(LPWM1, LOW);
+  }
+}
+
+BLYNK_WRITE(V4) {
+  int state = param.asInt();
+  if (state) {
+    // Forward motor 2
+    digitalWrite(RPWM2, HIGH);
+    digitalWrite(LPWM2, LOW);
+  } else {
+    // Stop motor 2
+    digitalWrite(RPWM2, LOW);
+    digitalWrite(LPWM2, LOW);
+  }
+}
