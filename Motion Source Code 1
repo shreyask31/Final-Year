@@ -1,73 +1,138 @@
-#define BLYNK_TEMPLATE_ID "TMPL3A_A1O_b_"
+#define BLYNK_TEMPLATE_ID "TMPL3E6gmDLfH"
 #define BLYNK_TEMPLATE_NAME "Robot Project"
-#define BLYNK_AUTH_TOKEN "HYnKCOdRJav0hpztHaqKdSniX4ULJcnM"
+#define BLYNK_AUTH_TOKEN "wY-PQRzkstJkW4SrkiWXn6w2Xf0NA83I"
 
 #define BLYNK_PRINT Serial
-#include <ESP8266WiFi.h>
-#include <BlynkSimpleEsp8266.h>
+#include <WiFi.h>
+#include <BlynkSimpleEsp32.h>
+#include <Servo.h>
 
-#define PWM1_PIN 14 // D5 on the ESP8266
-#define PWM2_PIN 12 // D6 on the ESP8266
+// Define pin numbers for Motor 1
+#define RPWM1 5  // GPIO27
+#define LPWM1 4  // GPIO26
+#define REN1  2   // GPIO25
+#define LEN1  15   // GPIO33
 
-char auth[] = "HYnKCOdRJav0hpztHaqKdSniX4ULJcnM"; // Replace with your Blynk Auth Token
-char ssid[] = "iPhone";     // Replace with your WiFi SSID
-char pass[] = "sskulkarni"; // Replace with your WiFi password
+// Define pin numbers for Motor 2
+#define RPWM2 19  // GPIO19
+#define LPWM2 18  // GPIO18
+#define REN2  21    // GPIO5
+#define LEN2  23   // GPIO17
 
-BlynkTimer timer;
+// Define servo pin numbers
+#define SERVO_PITCH_PIN 22 // GPIO22 for Pitch
+#define SERVO_YAW_PIN 3    // GPIO3 (RX) for Yaw
+
+char auth[] = "wY-PQRzkstJkW4SrkiWXn6w2Xf0NA83I"; // Replace with your Blynk auth token
+char ssid[] = "Carboxyl";      // Replace with your WiFi SSID
+char pass[] = "shreyas31";  // Replace with your WiFi password
+
+Servo servoPitch; // Servo for pitch movement
+Servo servoYaw;   // Servo for yaw movement
 
 void setup() {
-  // Set the PWM pins as output
-  pinMode(PWM1_PIN, OUTPUT);
-  pinMode(PWM2_PIN, OUTPUT);
-
-  // Initialize serial communication for debugging
   Serial.begin(115200);
-
-  // Connect to Wi-Fi
-  WiFi.begin(ssid, pass);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("");
-  Serial.println("WiFi connected");
-
-  // Initialize Blynk
   Blynk.begin(auth, ssid, pass);
 
-  // Define callback functions for switch states
-  Blynk.virtualWrite(V1, 512);  // Set slider to mid position initially
-}
+  // Setup Motor 1
+  pinMode(RPWM1, OUTPUT);
+  pinMode(LPWM1, OUTPUT);
+  pinMode(REN1, OUTPUT);
+  pinMode(LEN1, OUTPUT);
 
-// This function will be called every time the slider widget changes its value
-BLYNK_WRITE(V1) {
-  int speed = param.asInt(); // Get the value from the slider
-  analogWrite(PWM1_PIN, speed);  // Set speed on PWM1
-  Serial.print("Motor Speed: ");
-  Serial.println(speed);
-}
+  // Setup Motor 2
+  pinMode(RPWM2, OUTPUT);
+  pinMode(LPWM2, OUTPUT);
+  pinMode(REN2, OUTPUT);
+  pinMode(LEN2, OUTPUT);
 
-// This function will be called every time the forward switch state changes
-BLYNK_WRITE(V2) {
-  int forward = param.asInt(); // Get the value of the forward switch (0 or 1)
-  if (forward == 1) {
-    digitalWrite(PWM1_PIN, HIGH); // Set PWM1 to HIGH for forward motion
-    digitalWrite(PWM2_PIN, LOW);  // Set PWM2 to LOW
-    Serial.println("Motor Forward");
-  }
-}
+  // Enable the motor drivers
+  digitalWrite(REN1, HIGH);
+  digitalWrite(LEN1, HIGH);
+  digitalWrite(REN2, HIGH);
+  digitalWrite(LEN2, HIGH);
 
-// This function will be called every time the reverse switch state changes
-BLYNK_WRITE(V3) {
-  int reverse = param.asInt(); // Get the value of the reverse switch (0 or 1)
-  if (reverse == 1) {
-    digitalWrite(PWM1_PIN, LOW);  // Set PWM1 to LOW
-    digitalWrite(PWM2_PIN, HIGH); // Set PWM2 to HIGH for reverse motion
-    Serial.println("Motor Reverse");
-  }
+  // Attach servos
+  servoPitch.attach(SERVO_PITCH_PIN);
+  servoYaw.attach(SERVO_YAW_PIN);
+
+  // Set initial servo positions
+  servoPitch.write(90); // Center position
+  servoYaw.write(90);   // Center position
 }
 
 void loop() {
-  Blynk.run(); // Run Blynk
-  timer.run(); // Run BlynkTimer
+  Blynk.run();
+}
+
+// Motor controls
+BLYNK_WRITE(V1) {
+  int state = param.asInt();
+  if (state) {
+    // Forward both motors
+    digitalWrite(RPWM1, HIGH);
+    digitalWrite(LPWM1, LOW);
+    digitalWrite(RPWM2, HIGH);
+    digitalWrite(LPWM2, LOW);
+  } else {
+    // Stop both motors
+    digitalWrite(RPWM1, LOW);
+    digitalWrite(LPWM1, LOW);
+    digitalWrite(RPWM2, LOW);
+    digitalWrite(LPWM2, LOW);
+  }
+}
+
+BLYNK_WRITE(V2) {
+  int state = param.asInt();
+  if (state) {
+    // Reverse both motors
+    digitalWrite(RPWM1, LOW);
+    digitalWrite(LPWM1, HIGH);
+    digitalWrite(RPWM2, LOW);
+    digitalWrite(LPWM2, HIGH);
+  } else {
+    // Stop both motors
+    digitalWrite(RPWM1, LOW);
+    digitalWrite(LPWM1, LOW);
+    digitalWrite(RPWM2, LOW);
+    digitalWrite(LPWM2, LOW);
+  }
+}
+
+BLYNK_WRITE(V3) {
+  int state = param.asInt();
+  if (state) {
+    // Forward motor 1
+    digitalWrite(RPWM1, HIGH);
+    digitalWrite(LPWM1, LOW);
+  } else {
+    // Stop motor 1
+    digitalWrite(RPWM1, LOW);
+    digitalWrite(LPWM1, LOW);
+  }
+}
+
+BLYNK_WRITE(V4) {
+  int state = param.asInt();
+  if (state) {
+    // Forward motor 2
+    digitalWrite(RPWM2, HIGH);
+    digitalWrite(LPWM2, LOW);
+  } else {
+    // Stop motor 2
+    digitalWrite(RPWM2, LOW);
+    digitalWrite(LPWM2, LOW);
+  }
+}
+
+// Servo controls
+BLYNK_WRITE(V5) { // Pitch control
+  int angle = param.asInt(); // Get angle from Blynk slider
+  servoPitch.write(angle);
+}
+
+BLYNK_WRITE(V6) { // Yaw control
+  int angle = param.asInt(); // Get angle from Blynk slider
+  servoYaw.write(angle);
 }
