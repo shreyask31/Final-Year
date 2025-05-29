@@ -1,0 +1,837 @@
+import tkinter as tk
+from tkinter import ttk, messagebox, scrolledtext
+from PIL import Image, ImageTk
+import cv2
+import numpy as np
+import os
+import time
+import threading
+import requests
+from ultralytics import YOLO
+import datetime
+import json
+import pygame
+import socket
+
+class LoginWindow:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("SewerBot Login")
+        self.root.attributes("-fullscreen", True)
+        self.root.configure(bg="#333333")
+        
+        self.screen_width = self.root.winfo_screenwidth()
+        self.screen_height = self.root.winfo_screenheight()
+        
+        bg_image_path = r"C:/Users/Pratik/Desktop/gui/image/loginpage.webp"
+        try:
+            bg_image = Image.open(bg_image_path)
+            bg_image = bg_image.resize((self.screen_width, self.screen_height), Image.Resampling.LANCZOS)
+            self.bg_photo = ImageTk.PhotoImage(bg_image)
+            bg_label = tk.Label(self.root, image=self.bg_photo)
+            bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+        except Exception as e:
+            messagebox.showinfo("Info", f"Using default background (couldn't load image: {e})")
+            bg_label = tk.Label(self.root, bg="#333333")
+            bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+        
+        login_frame = tk.Frame(self.root, bg="#333333")
+        login_frame.place(relx=0.5, rely=0.5, anchor="center")
+        welcome_label = tk.Label(login_frame, text="Welcome to SEWERBOT", 
+                                 bg="#333333", fg="white", font=("Arial", 24, "bold"))
+        welcome_label.pack(pady=15)
+        form_frame = tk.Frame(login_frame, bg="#333333")
+        form_frame.pack(pady=10)
+        tk.Label(form_frame, text="Login ID:", bg="#333333", fg="white", font=("Arial", 16))\
+            .grid(row=0, column=0, sticky="e", padx=10, pady=10)
+        self.login_id_entry = tk.Entry(form_frame, width=30, font=("Arial", 16))
+        self.login_id_entry.grid(row=0, column=1, padx=10, pady=10)
+        tk.Label(form_frame, text="Password:", bg="#333333", fg="white", font=("Arial", 16))\
+            .grid(row=1, column=0, sticky="e", padx=10, pady=10)
+        self.password_entry = tk.Entry(form_frame, width=30, font=("Arial", 16), show="*")
+        self.password_entry.grid(row=1, column=1, padx=10, pady=10)
+        login_btn = tk.Button(login_frame, text="Login", font=("Arial", 18), 
+                              bg="#4CAF50", fg="white", width=12, command=self.check_credentials)
+        login_btn.pack(pady=20)
+        
+        bypass_btn = tk.Button(login_frame, text="Bypass Login (Testing)", font=("Arial", 12), 
+                               bg="#888888", fg="white", command=self.bypass_login)
+        bypass_btn.pack(pady=5)
+        
+        self.correct_login_id = "SEWERBOT"
+        self.correct_password = "SEWERBOT"
+        self.root.bind("<Escape>", lambda e: self.root.attributes("-fullscreen", False))
+        
+    def check_credentials(self):
+        entered_id = self.login_id_entry.get().strip()
+        entered_pass = self.password_entry.get().strip()
+        if entered_id == self.correct_login_id and entered_pass == self.correct_password:
+            messagebox.showinfo("Login", "Login successful!")
+            self.root.destroy()
+            open_main_gui()
+        else:
+            messagebox.showerror("Login", "Invalid Login ID or Password")
+    
+    def bypass_login(self):
+        self.root.destroy()
+        open_main_gui()
+
+class CrackAlertSystem:
+    def __init__(self, log_function):
+        self.log_function = log_function
+        self.alert_active = False
+        self.alert_cooldown = 5  # seconds between alerts
+        self.last_alert_time = 0
+        self.crack_log_file = "crack_detection_log.json"
+        self.load_crack_log()
+        
+        try:
+            pygame.mixer.init()
+            self.alert_sound = pygame.mixer.Sound("C:/Users/Pratik/Desktop/gui/audio/audio.wav")
+        except Exception as e:
+            self.log_function(f"Warning: Could not initialize sound: {str(e)}")
+            self.alert_sound = None
+        
+    def load_crack_log(self):
+        try:
+            if os.path.exists(self.crack_log_file):
+                with open(self.crack_log_file, 'r') as f:
+                    self.crack_log = json.load(f)
+            else:
+                self.crack_log = []
+        except Exception as e:
+            self.log_function(f"Error loading crack log: {str(e)}")
+            self.crack_log = []
+    
+    def save_crack_log(self):
+        try:
+            with open(self.crack_log_file, 'w') as f:
+                json.dump(self.crack_log, f, indent=2)
+        except Exception as e:
+            self.log_function(f"Error saving crack log: {str(e)}")
+    
+    def log_crack_detection(self, severity, confidence, location, image_path):
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        entry = {
+            "timestamp": timestamp,
+            "severity": severity,
+            "confidence": confidence,
+            "location": location,
+            "image_path": image_path
+        }
+        self.crack_log.append(entry)
+        self.save_crack_log()
+        return entry
+    
+    def trigger_alert(self, frame, confidence, class_name, bbox, capture_dir):
+        current_time = time.time()
+        if not self.alert_active or (current_time - self.last_alert_time) > self.alert_cooldown:
+            self.alert_active = True
+            self.last_alert_time = current_time
+            
+            x1, y1, x2, y2 = bbox
+            area = (x2 - x1) * (y2 - y1)
+            frame_area = frame.shape[0] * frame.shape[1]
+            relative_size = area / frame_area
+            if confidence > 0.7 and relative_size > 0.05:
+                severity = "High"
+            elif confidence > 0.5 and relative_size > 0.02:
+                severity = "Medium"
+            else:
+                severity = "Low"
+            
+            alert_msg = f"CRACK DETECTED! Severity: {severity}, Confidence: {confidence:.2f}"
+            self.log_function(f"⚠️ ALERT: {alert_msg}")
+            
+            os.makedirs(capture_dir, exist_ok=True)
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = os.path.join(capture_dir, f"crack_detected_{timestamp}.jpg")
+            
+            annotated_frame = frame.copy()
+            current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cv2.putText(annotated_frame, current_time_str, (10, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            cv2.putText(annotated_frame, f"{class_name}: {confidence:.2f}", (x1, y1 - 10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            
+            try:
+                cv2.imwrite(filename, annotated_frame)
+                self.log_function(f"Crack image saved: {filename}")
+                entry = self.log_crack_detection(severity, confidence, "Unknown", filename)
+                if self.alert_sound:
+                    self.alert_sound.play()
+                return True, filename
+            except Exception as e:
+                self.log_function(f"Error saving crack image: {str(e)}")
+                return False, None
+        return False, None
+    
+    def reset_alert(self):
+        self.alert_active = False
+
+class PipeInspectionGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Pipe Inspection System")
+        self.root.attributes("-fullscreen", True)
+        self.root.configure(bg="#333333")
+        
+        self.camera_source = 0
+        self.video_running = False
+        self.detection_enabled = False
+        self.current_frame = None
+        self.show_timestamp = True
+        
+        self.model_path = r"C:/Users/Pratik/Desktop/gui/dataset/best.pt"
+        try:
+            if os.path.exists(self.model_path):
+                self.model = YOLO(self.model_path)
+                self.class_names = self.model.names
+                self.colors = self._generate_colors(len(self.class_names))
+            else:
+                messagebox.showwarning("Warning", f"Model not found at {self.model_path}.")
+                self.model = None
+                self.class_names = {0: "crack"}
+                self.colors = [(0, 0, 255)]
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load YOLO model: {e}")
+            self.model = None
+            self.class_names = {0: "crack"}
+            self.colors = [(0, 0, 255)]
+        
+        self.capture_dir = "C:/Users/Pratik/Desktop/gui/image/captured"
+        os.makedirs(self.capture_dir, exist_ok=True)
+        
+        self.esp_ip = "192.168.1.101"
+        self.esp_port = 80
+        
+        self._setup_gui_grid()
+        
+        self.alert_system = CrackAlertSystem(self.log_message)
+        
+        self.cracks_detected_session = 0
+        
+        self.root.bind("<Escape>", lambda e: self.root.attributes("-fullscreen", False))
+        
+        self.root.update()
+
+    def _generate_colors(self, num_classes):
+        rng = np.random.default_rng(42)
+        return [tuple(rng.integers(0, 256, size=3).tolist()) for _ in range(num_classes)]
+    
+    def _setup_gui_grid(self):
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_rowconfigure(1, weight=10)
+        self.root.grid_rowconfigure(2, weight=10)
+        self.root.grid_rowconfigure(3, weight=2)
+        self.root.grid_columnconfigure(0, weight=1)
+        self.root.grid_columnconfigure(1, weight=1)
+        
+        self.create_status_bar()
+        self.create_camera_panel()
+        self.create_control_panel()
+        self.create_log_panel()
+    def create_status_bar(self):
+        status_frame = tk.Frame(self.root, bg="#444444")
+        status_frame.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=5, pady=2)
+        
+        self.status_var = tk.StringVar()
+        self.status_var.set("Ready")
+        status_label = tk.Label(status_frame, textvariable=self.status_var,
+                                bg="#444444", fg="white", font=("Arial", 14), anchor="w")
+        status_label.pack(side="left", fill="x", expand=True)
+        
+        self.crack_counter_var = tk.StringVar()
+        self.crack_counter_var.set("Cracks: 0")
+        crack_counter_label = tk.Label(status_frame, textvariable=self.crack_counter_var,
+                                      bg="#F44336", fg="white", font=("Arial", 14), padx=10)
+        crack_counter_label.pack(side="left", padx=10)
+        
+        self.time_var = tk.StringVar()
+        time_label = tk.Label(status_frame, textvariable=self.time_var,
+                              bg="#444444", fg="white", font=("Arial", 14), padx=10)
+        time_label.pack(side="left", padx=10)
+        self.update_time_display()
+        
+        settings_btn = tk.Button(status_frame, text="Settings", command=self.open_settings,
+                                 font=("Arial", 14), bg="#2196F3", fg="white", width=8)
+        settings_btn.pack(side="right", padx=5)
+        
+        crack_log_btn = tk.Button(status_frame, text="Crack History", command=self.open_crack_log,
+                                  font=("Arial", 14), bg="#FF9800", fg="white", width=12)
+        crack_log_btn.pack(side="right", padx=5)
+        
+        exit_btn = tk.Button(status_frame, text="Exit", command=self.root.destroy,
+                             font=("Arial", 14), bg="#F44336", fg="white", width=8)
+        exit_btn.pack(side="right", padx=5)
+    
+    def update_time_display(self):
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.time_var.set(current_time)
+        self.root.after(1000, self.update_time_display)
+    
+    def create_camera_panel(self):
+        camera_frame = tk.LabelFrame(self.root, text="Camera Feed", bg="#444444", fg="white", padx=5, pady=5)
+        camera_frame.grid(row=1, column=0, rowspan=2, sticky="nsew", padx=5, pady=5)
+        camera_frame.grid_rowconfigure(0, weight=1)
+        camera_frame.grid_rowconfigure(1, weight=0)
+        camera_frame.grid_columnconfigure(0, weight=1)
+        
+        default_img = np.zeros((480, 640, 3), dtype=np.uint8)
+        default_img_pil = Image.fromarray(default_img)
+        default_img_tk = ImageTk.PhotoImage(default_img_pil)
+        
+        self.video_label = tk.Label(camera_frame, bg="black", image=default_img_tk)
+        self.video_label.image = default_img_tk
+        self.video_label.grid(row=0, column=0, sticky="nsew")
+        
+        controls_frame = tk.Frame(camera_frame, bg="#444444")
+        controls_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+        
+        self.start_cam_btn = tk.Button(controls_frame, text="Start Camera", command=self.start_camera,
+                                       font=("Arial", 14), bg="#4CAF50", fg="white", width=15)
+        self.start_cam_btn.pack(side="left", padx=5)
+        
+        self.stop_cam_btn = tk.Button(controls_frame, text="Stop Camera", command=self.stop_camera,
+                                      font=("Arial", 14), bg="#F44336", fg="white", width=15, state="disabled")
+        self.stop_cam_btn.pack(side="left", padx=5)
+        
+        self.detection_btn = tk.Button(controls_frame, text="Enable Detection", command=self.toggle_detection,
+                                       font=("Arial", 14), bg="#2196F3", fg="white", width=15)
+        self.detection_btn.pack(side="left", padx=5)
+        
+        self.capture_btn = tk.Button(controls_frame, text="Capture Image", command=self.capture_image,
+                                     font=("Arial", 14), bg="#FF9800", fg="white", width=15)
+        self.capture_btn.pack(side="left", padx=5)
+        
+        self.timestamp_var = tk.BooleanVar(value=True)
+        timestamp_check = tk.Checkbutton(controls_frame, text="Show Timestamp", 
+                                         variable=self.timestamp_var, 
+                                         command=self.toggle_timestamp,
+                                         font=("Arial", 12), bg="#444444", fg="white", 
+                                         selectcolor="#666666", activebackground="#444444")
+        timestamp_check.pack(side="left", padx=5)
+    
+    def toggle_timestamp(self):
+        self.show_timestamp = self.timestamp_var.get()
+        self.log_message(f"Timestamp display {'enabled' if self.show_timestamp else 'disabled'}")
+
+    def create_status_bar(self):
+        status_frame = tk.Frame(self.root, bg="#444444")
+        status_frame.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=5, pady=2)
+        
+        self.status_var = tk.StringVar()
+        self.status_var.set("Ready")
+        status_label = tk.Label(status_frame, textvariable=self.status_var,
+                                bg="#444444", fg="white", font=("Arial", 14), anchor="w")
+        status_label.pack(side="left", fill="x", expand=True)
+        
+        self.crack_counter_var = tk.StringVar()
+        self.crack_counter_var.set("Cracks: 0")
+        crack_counter_label = tk.Label(status_frame, textvariable=self.crack_counter_var,
+                                      bg="#F44336", fg="white", font=("Arial", 14), padx=10)
+        crack_counter_label.pack(side="left", padx=10)
+        
+        self.time_var = tk.StringVar()
+        time_label = tk.Label(status_frame, textvariable=self.time_var,
+                              bg="#444444", fg="white", font=("Arial", 14), padx=10)
+        time_label.pack(side="left", padx=10)
+        self.update_time_display()
+        
+        settings_btn = tk.Button(status_frame, text="Settings", command=self.open_settings,
+                                 font=("Arial", 14), bg="#2196F3", fg="white", width=8)
+        settings_btn.pack(side="right", padx=5)
+        
+        crack_log_btn = tk.Button(status_frame, text="Crack History", command=self.open_crack_log,
+                                  font=("Arial", 14), bg="#FF9800", fg="white", width=12)
+        crack_log_btn.pack(side="right", padx=5)
+        
+        exit_btn = tk.Button(status_frame, text="Exit", command=self.root.destroy,
+                             font=("Arial", 14), bg="#F44336", fg="white", width=8)
+        exit_btn.pack(side="right", padx=5)
+    
+    def update_time_display(self):
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.time_var.set(current_time)
+        self.root.after(1000, self.update_time_display)
+    
+    def create_camera_panel(self):
+        camera_frame = tk.LabelFrame(self.root, text="Camera Feed", bg="#444444", fg="white", padx=5, pady=5)
+        camera_frame.grid(row=1, column=0, rowspan=2, sticky="nsew", padx=5, pady=5)
+        camera_frame.grid_rowconfigure(0, weight=1)
+        camera_frame.grid_rowconfigure(1, weight=0)
+        camera_frame.grid_columnconfigure(0, weight=1)
+        
+        default_img = np.zeros((480, 640, 3), dtype=np.uint8)
+        default_img_pil = Image.fromarray(default_img)
+        default_img_tk = ImageTk.PhotoImage(default_img_pil)
+        
+        self.video_label = tk.Label(camera_frame, bg="black", image=default_img_tk)
+        self.video_label.image = default_img_tk
+        self.video_label.grid(row=0, column=0, sticky="nsew")
+        
+        controls_frame = tk.Frame(camera_frame, bg="#444444")
+        controls_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+        
+        self.start_cam_btn = tk.Button(controls_frame, text="Start Camera", command=self.start_camera,
+                                       font=("Arial", 14), bg="#4CAF50", fg="white", width=15)
+        self.start_cam_btn.pack(side="left", padx=5)
+        
+        self.stop_cam_btn = tk.Button(controls_frame, text="Stop Camera", command=self.stop_camera,
+                                      font=("Arial", 14), bg="#F44336", fg="white", width=15, state="disabled")
+        self.stop_cam_btn.pack(side="left", padx=5)
+        
+        self.detection_btn = tk.Button(controls_frame, text="Enable Detection", command=self.toggle_detection,
+                                       font=("Arial", 14), bg="#2196F3", fg="white", width=15)
+        self.detection_btn.pack(side="left", padx=5)
+        
+        self.capture_btn = tk.Button(controls_frame, text="Capture Image", command=self.capture_image,
+                                     font=("Arial", 14), bg="#FF9800", fg="white", width=15)
+        self.capture_btn.pack(side="left", padx=5)
+        
+        self.timestamp_var = tk.BooleanVar(value=True)
+        timestamp_check = tk.Checkbutton(controls_frame, text="Show Timestamp", 
+                                         variable=self.timestamp_var, 
+                                         command=self.toggle_timestamp,
+                                         font=("Arial", 12), bg="#444444", fg="white", 
+                                         selectcolor="#666666", activebackground="#444444")
+        timestamp_check.pack(side="left", padx=5)
+    
+    def toggle_timestamp(self):
+        self.show_timestamp = self.timestamp_var.get()
+        self.log_message(f"Timestamp display {'enabled' if self.show_timestamp else 'disabled'}")
+
+    def create_control_panel(self):
+        control_frame = tk.LabelFrame(self.root, text="Robot Control", bg="#444444", fg="white", padx=5, pady=5)
+        control_frame.grid(row=1, column=1, rowspan=2, sticky="nsew", padx=5, pady=5)
+        
+        left_panel = tk.Frame(control_frame, bg="#444444")
+        left_panel.pack(side="left", fill="both", expand=True, padx=10)
+        
+        right_panel = tk.Frame(control_frame, bg="#444444")
+        right_panel.pack(side="right", fill="both", expand=True, padx=10)
+        
+        # Movement controls
+        movement_label = tk.Label(left_panel, text="Movement Control", font=("Arial", 16, "bold"),
+                                 bg="#444444", fg="white")
+        movement_label.pack(pady=(0, 10))
+        
+        movement = tk.Frame(left_panel, bg="#444444")
+        movement.pack(pady=10)
+        
+        self.up_btn = tk.Button(movement, text="↑", font=("Arial", 16), bg="#555555", fg="white",
+                                width=5, height=2, command=lambda: self.send_command("forward"))
+        self.up_btn.grid(row=0, column=1, padx=5, pady=5)
+        
+        self.left_btn = tk.Button(movement, text="←", font=("Arial", 16), bg="#555555", fg="white",
+                                  width=5, height=2, command=lambda: self.send_command("left"))
+        self.left_btn.grid(row=1, column=0, padx=5, pady=5)
+        
+        self.stop_btn = tk.Button(movement, text="■", font=("Arial", 16), bg="#F44336", fg="white",
+                                  width=5, height=2, command=lambda: self.send_command("stop"))
+        self.stop_btn.grid(row=1, column=1, padx=5, pady=5)
+        
+        self.right_btn = tk.Button(movement, text="→", font=("Arial", 16), bg="#555555", fg="white",
+                                   width=5, height=2, command=lambda: self.send_command("right"))
+        self.right_btn.grid(row=1, column=2, padx=5, pady=5)
+        
+        self.down_btn = tk.Button(movement, text="↓", font=("Arial", 16), bg="#555555", fg="white",
+                                  width=5, height=2, command=lambda: self.send_command("backward"))
+        self.down_btn.grid(row=2, column=1, padx=5, pady=5)
+        
+        speed_frame = tk.Frame(left_panel, bg="#444444")
+        speed_frame.pack(fill="x", pady=10)
+        
+        tk.Label(speed_frame, text="Speed:", bg="#444444", fg="white", font=("Arial", 14))\
+            .pack(side="left", padx=5)
+            
+        self.speed_slider = tk.Scale(speed_frame, from_=0, to=100, orient="horizontal",
+                                     command=lambda v: self.update_speed(int(v)),
+                                     bg="#444444", fg="white", troughcolor="#666666", font=("Arial", 12))
+        self.speed_slider.set(50)
+        self.speed_slider.pack(side="left", fill="x", expand=True, padx=5)
+        
+        # Servo controls
+        servo_label = tk.Label(right_panel, text="Servo Control", font=("Arial", 16, "bold"),
+                               bg="#444444", fg="white")
+        servo_label.pack(pady=(0, 10))
+        
+        servo1_frame = tk.Frame(right_panel, bg="#444444")
+        servo1_frame.pack(fill="x", pady=10)
+        
+        tk.Label(servo1_frame, text="Servo 1:", bg="#444444", fg="white", font=("Arial", 14))\
+            .pack(side="left", padx=5)
+            
+        self.servo1_slider = tk.Scale(servo1_frame, from_=0, to=180, orient="horizontal",
+                                     command=lambda v: self.update_servo(1, int(v)),
+                                     bg="#444444", fg="white", troughcolor="#666666", font=("Arial", 12))
+        self.servo1_slider.set(90)
+        self.servo1_slider.pack(side="left", fill="x", expand=True, padx=5)
+        
+        servo2_frame = tk.Frame(right_panel, bg="#444444")
+        servo2_frame.pack(fill="x", pady=10)
+        
+        tk.Label(servo2_frame, text="Servo 2:", bg="#444444", fg="white", font=("Arial", 14))\
+            .pack(side="left", padx=5)
+            
+        self.servo2_slider = tk.Scale(servo2_frame, from_=0, to=180, orient="horizontal",
+                                     command=lambda v: self.update_servo(2, int(v)),
+                                     bg="#444444", fg="white", troughcolor="#666666", font=("Arial", 12))
+        self.servo2_slider.set(90)
+        self.servo2_slider.pack(side="left", fill="x", expand=True, padx=5)
+        
+        preset_frame = tk.Frame(right_panel, bg="#444444")
+        preset_frame.pack(fill="x", pady=10)
+        
+        tk.Button(preset_frame, text="Center Both", font=("Arial", 12), bg="#2196F3", fg="white",
+                  command=lambda: self.set_servo_preset(90, 90))\
+            .pack(side="left", padx=5, fill="x", expand=True)
+        
+        tk.Button(preset_frame, text="Look Up", font=("Arial", 12), bg="#2196F3", fg="white",
+                  command=lambda: self.set_servo_preset(90, 30))\
+            .pack(side="left", padx=5, fill="x", expand=True)
+        
+        tk.Button(preset_frame, text="Look Down", font=("Arial", 12), bg="#2196F3", fg="white",
+                  command=lambda: self.set_servo_preset(90, 150))\
+            .pack(side="left", padx=5, fill="x", expand=True)
+        
+        # Auto-scan option
+        auto_scan_frame = tk.Frame(right_panel, bg="#444444")
+        auto_scan_frame.pack(fill="x", pady=10)
+        
+        self.auto_scan_var = tk.BooleanVar(value=False)
+        auto_scan_check = tk.Checkbutton(auto_scan_frame, text="Auto-Scan Mode", 
+                                       variable=self.auto_scan_var, 
+                                       command=self.toggle_auto_scan,
+                                       font=("Arial", 12), bg="#444444", fg="white", 
+                                       selectcolor="#666666", activebackground="#444444")
+        auto_scan_check.pack(side="left", padx=5)
+        
+        tk.Button(auto_scan_frame, text="Reset Servos", command=self.reset_servos,
+                 bg="#FF9800", fg="white", font=("Arial", 12)).pack(side="right", padx=5)
+    
+    def create_log_panel(self):
+        logs_frame = tk.LabelFrame(self.root, text="Logs", bg="#444444", fg="white", padx=5, pady=5)
+        logs_frame.grid(row=3, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
+        
+        log_container = tk.Frame(logs_frame, bg="#444444")
+        log_container.pack(fill="both", expand=True)
+        
+        scrollbar = tk.Scrollbar(log_container)
+        scrollbar.pack(side="right", fill="y")
+        
+        self.log_text = tk.Text(log_container, height=7, bg="#222222", fg="#CCCCCC",
+                              font=("Arial", 12), yscrollcommand=scrollbar.set)
+        self.log_text.pack(side="left", fill="both", expand=True)
+        
+        scrollbar.config(command=self.log_text.yview)
+
+    def set_servo_preset(self, pos1, pos2):
+        self.servo1_slider.set(pos1)
+        self.servo2_slider.set(pos2)
+        self.update_servo(1, pos1)
+        self.update_servo(2, pos2)
+    
+    def update_servo(self, servo_id, angle):
+        self.send_command(f"servo{servo_id}:{angle}")
+        self.log_message(f"Servo {servo_id} set to {angle}°")
+    
+    def reset_servos(self):
+        self.set_servo_preset(90, 90)
+    
+    def toggle_auto_scan(self):
+        if self.auto_scan_var.get():
+            self.log_message("Auto-scan mode enabled")
+            threading.Thread(target=self.auto_scan_routine, daemon=True).start()
+        else:
+            self.log_message("Auto-scan mode disabled")
+    
+    def auto_scan_routine(self):
+        if not self.auto_scan_var.get():
+            return
+        positions = [(90, 60), (45, 60), (135, 60), (90, 90), (45, 90), (135, 90), (90, 120), (45, 120), (135, 120)]
+        for pan, tilt in positions:
+            if not self.auto_scan_var.get():
+                break
+            self.servo1_slider.set(pan)
+            self.servo2_slider.set(tilt)
+            self.update_servo(1, pan)
+            self.update_servo(2, tilt)
+            time.sleep(2)
+            if self.detection_enabled and self.video_running:
+                self.capture_image(auto=True)
+        if self.auto_scan_var.get():
+            self.set_servo_preset(90, 90)
+            self.auto_scan_var.set(False)
+    
+    def log_message(self, message):
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        log_entry = f"[{timestamp}] {message}\n"
+        self.root.after(0, self._append_log, log_entry)
+        print(log_entry.strip())
+    
+    def _append_log(self, message):
+        self.log_text.insert(tk.END, message)
+        self.log_text.see(tk.END)
+    
+    def start_camera(self):
+        if not self.video_running:
+            try:
+                self.cap = cv2.VideoCapture(self.camera_source)
+                if not self.cap.isOpened():
+                    raise Exception("Unable to open camera source")
+                self.video_running = True
+                self.status_var.set("Camera Running")
+                self.log_message("Camera started")
+                self.start_cam_btn.config(state="disabled")
+                self.stop_cam_btn.config(state="normal")
+                threading.Thread(target=self.update_video, daemon=True).start()
+            except Exception as e:
+                self.log_message(f"Error starting camera: {str(e)}")
+                messagebox.showerror("Error", f"Failed to start camera: {str(e)}")
+    
+    def stop_camera(self):
+        if self.video_running:
+            self.video_running = False
+            time.sleep(0.5)
+            if hasattr(self, 'cap') and self.cap is not None:
+                self.cap.release()
+            default_img = np.zeros((480, 640, 3), dtype=np.uint8)
+            self.update_video_display(default_img)
+            self.status_var.set("Ready")
+            self.log_message("Camera stopped")
+            self.start_cam_btn.config(state="normal")
+            self.stop_cam_btn.config(state="disabled")
+    
+    def update_video(self):
+        while self.video_running:
+            try:
+                ret, frame = self.cap.read()
+                if not ret:
+                    self.log_message("Failed to capture frame, retrying...")
+                    time.sleep(0.1)
+                    continue
+                self.current_frame = frame.copy()
+                if self.detection_enabled and self.model is not None:
+                    frame = self.detect_cracks(frame)
+                if self.show_timestamp:
+                    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    cv2.putText(frame, timestamp, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                self.update_video_display(frame)
+                time.sleep(0.03)
+            except Exception as e:
+                self.log_message(f"Error in video processing: {str(e)}")
+                time.sleep(0.5)
+    
+    def update_video_display(self, frame):
+        if frame is None:
+            return
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w = rgb_frame.shape[:2]
+        max_width = 800
+        max_height = 600
+        if w > max_width or h > max_height:
+            if w/max_width > h/max_height:
+                new_w = max_width
+                new_h = int(h * (max_width / w))
+            else:
+                new_h = max_height
+                new_w = int(w * (max_height / h))
+            rgb_frame = cv2.resize(rgb_frame, (new_w, new_h))
+        pil_img = Image.fromarray(rgb_frame)
+        tk_img = ImageTk.PhotoImage(image=pil_img)
+        self.video_label.config(image=tk_img)
+        self.video_label.image = tk_img
+    
+    def detect_cracks(self, frame):
+        if self.model is None:
+            return frame
+        try:
+            results = self.model(frame, stream=True)
+            annotated_frame = frame.copy()
+            for r in results:
+                boxes = r.boxes
+                for box in boxes:
+                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
+                    conf = float(box.conf[0].cpu().numpy())
+                    cls_id = int(box.cls[0].cpu().numpy())
+                    if conf > 0.4:
+                        class_name = self.class_names.get(cls_id, f"Class {cls_id}")
+                        color = self.colors[cls_id % len(self.colors)]
+                        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+                        label = f"{class_name}: {conf:.2f}"
+                        cv2.putText(annotated_frame, label, (x1, y1 - 5), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                        alert_triggered, _ = self.alert_system.trigger_alert(frame, conf, class_name, (x1,y1,x2,y2), self.capture_dir)
+                        if alert_triggered:
+                            self.cracks_detected_session += 1
+                            self.crack_counter_var.set(f"Cracks: {self.cracks_detected_session}")
+            return annotated_frame
+        except Exception as e:
+            self.log_message(f"Error during crack detection: {str(e)}")
+            return frame
+    
+    def toggle_detection(self):
+        self.detection_enabled = not self.detection_enabled
+        if self.detection_enabled:
+            if self.model is None:
+                messagebox.showwarning("Warning", "No model loaded. Detection will not work.")
+                self.detection_enabled = False
+                return
+            self.detection_btn.config(text="Disable Detection", bg="#FF9800")
+            self.log_message("Crack detection enabled")
+        else:
+            self.detection_btn.config(text="Enable Detection", bg="#2196F3")
+            self.log_message("Crack detection disabled")
+            self.alert_system.reset_alert()
+    
+    def capture_image(self, auto=False):
+        if self.current_frame is not None:
+            try:
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = os.path.join(self.capture_dir, f"capture_{timestamp}.jpg")
+                frame_to_save = self.current_frame.copy()
+                if self.show_timestamp:
+                    current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    cv2.putText(frame_to_save, current_time_str, (10, 30), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                cv2.imwrite(filename, frame_to_save)
+                if auto:
+                    self.log_message(f"Auto-captured image saved: {filename}")
+                else:
+                    self.log_message(f"Image captured: {filename}")
+                    messagebox.showinfo("Capture", f"Image saved to {filename}")
+            except Exception as e:
+                self.log_message(f"Error capturing image: {str(e)}")
+        else:
+            self.log_message("No frame available to capture")
+    
+    def update_speed(self, speed_value):
+        self.send_command(f"speed:{speed_value}")
+        self.log_message(f"Speed set to {speed_value}%")
+    
+    def send_command(self, command):
+        try:
+            self.log_message(f"Sending command: {command}")
+            url = f"http://{self.esp_ip}:{self.esp_port}/control?cmd={command}"
+            def send_request():
+                try:
+                    response = requests.get(url, timeout=1)
+                    if response.status_code == 200:
+                        self.log_message(f"Command sent successfully: {command}")
+                    else:
+                        self.log_message(f"Error sending command: {response.status_code}")
+                except Exception as e:
+                    self.log_message(f"Connection error: {str(e)}")
+            threading.Thread(target=send_request).start()
+        except Exception as e:
+            self.log_message(f"Error preparing command: {str(e)}")
+    
+    def open_settings(self):
+        settings_window = tk.Toplevel(self.root)
+        settings_window.title("Settings")
+        settings_window.geometry("400x300")
+        settings_window.configure(bg="#333333")
+        tk.Label(settings_window, text="ESP32 Settings", bg="#333333", fg="white", 
+                 font=("Arial", 16, "bold")).pack(pady=10)
+        settings_frame = tk.Frame(settings_window, bg="#333333")
+        settings_frame.pack(pady=10)
+        tk.Label(settings_frame, text="ESP IP Address:", bg="#333333", fg="white", 
+                 font=("Arial", 12)).grid(row=0, column=0, sticky="e", padx=10, pady=10)
+        ip_entry = tk.Entry(settings_frame, width=15, font=("Arial", 12))
+        ip_entry.insert(0, self.esp_ip)
+        ip_entry.grid(row=0, column=1, padx=10, pady=10)
+        tk.Label(settings_frame, text="ESP Port:", bg="#333333", fg="white", 
+                 font=("Arial", 12)).grid(row=1, column=0, sticky="e", padx=10, pady=10)
+        port_entry = tk.Entry(settings_frame, width=15, font=("Arial", 12))
+        port_entry.insert(0, str(self.esp_port))
+        port_entry.grid(row=1, column=1, padx=10, pady=10)
+        tk.Label(settings_frame, text="Camera Source:", bg="#333333", fg="white", 
+                 font=("Arial", 12)).grid(row=2, column=0, sticky="e", padx=10, pady=10)
+        camera_entry = tk.Entry(settings_frame, width=25, font=("Arial", 12))
+        camera_entry.insert(0, str(self.camera_source))
+        camera_entry.grid(row=2, column=1, padx=10, pady=10)
+        def save_settings():
+            try:
+                ip = ip_entry.get().strip()
+                socket.inet_aton(ip)
+                port = int(port_entry.get().strip())
+                if port < 1 or port > 65535:
+                    raise ValueError("Port must be between 1 and 65535")
+                cam_source = camera_entry.get().strip()
+                try:
+                    self.camera_source = int(cam_source)
+                except ValueError:
+                    self.camera_source = cam_source
+                self.esp_ip = ip
+                self.esp_port = port
+                self.log_message(f"Settings updated: ESP IP: {ip}, Port: {port}, Camera: {cam_source}")
+                if self.video_running:
+                    messagebox.showinfo("Note", "Camera source will be updated after camera restart")
+                settings_window.destroy()
+            except socket.error:
+                messagebox.showerror("Error", "Invalid IP address")
+            except ValueError as e:
+                messagebox.showerror("Error", str(e))
+        save_btn = tk.Button(settings_window, text="Save", command=save_settings, 
+                             font=("Arial", 14), bg="#4CAF50", fg="white", width=10)
+        save_btn.pack(pady=20)
+    
+    def open_crack_log(self):
+        log_window = tk.Toplevel(self.root)
+        log_window.title("Crack Detection History")
+        log_window.geometry("800x600")
+        log_window.configure(bg="#333333")
+        
+        log_frame = tk.LabelFrame(log_window, text="Detected Cracks", bg="#444444", fg="white", padx=10, pady=10)
+        log_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        tree_frame = tk.Frame(log_frame, bg="#444444")
+        tree_frame.pack(fill="both", expand=True)
+        
+        scrollbar = tk.Scrollbar(tree_frame)
+        scrollbar.pack(side="right", fill="y")
+        
+        columns = ("Timestamp", "Severity", "Location", "Image")
+        tree = ttk.Treeview(tree_frame, columns=columns, show="headings", yscrollcommand=scrollbar.set)
+        for col in columns:
+            tree.heading(col, text=col)
+            tree.column(col, width=150)
+        tree.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=tree.yview)
+        
+        for i, entry in enumerate(self.alert_system.crack_log):
+            tree.insert("", "end", values=(entry["timestamp"], entry["severity"], entry["location"], entry["image_path"]))
+        
+        def view_selected_image():
+            selected_item = tree.selection()
+            if selected_item:
+                item_data = tree.item(selected_item[0], "values")
+                image_path = item_data[3]
+                try:
+                    img = Image.open(image_path)
+                    img.show()
+                except Exception as e:
+                    messagebox.showerror("Error", f"Could not open image: {str(e)}")
+        
+        btn_frame = tk.Frame(log_window, bg="#333333")
+        btn_frame.pack(fill="x", pady=10)
+        
+        view_btn = tk.Button(btn_frame, text="View Selected Image", command=view_selected_image,
+                            font=("Arial", 14), bg="#2196F3", fg="white")
+        view_btn.pack(side="left", padx=10)
+        
+        close_btn = tk.Button(btn_frame, text="Close", command=log_window.destroy,
+                             font=("Arial", 14), bg="#F44336", fg="white")
+        close_btn.pack(side="right", padx=10)
+
+def open_main_gui():
+    root = tk.Tk()
+    app = PipeInspectionGUI(root)
+    root.mainloop()
+
+if __name__ == "__main__":
+    login_root = tk.Tk()
+    login_app = LoginWindow(login_root)
+    login_root.mainloop()
